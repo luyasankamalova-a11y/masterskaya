@@ -1,30 +1,64 @@
-# Публикация Мастерской на GitHub Pages при каждом push в main.
-name: Deploy
+# Проверка и публикация «Моей Мастерской».
+# Каждый push и pull request: установка зависимостей → проверка зависимостей → типы →
+# сборка → Chromium для Playwright → тесты (ядро + сквозной).
+# Публикация dist на GitHub Pages — только с ветки main и только если все проверки прошли.
+name: Check and deploy
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 permissions:
   contents: read
   pages: write
   id-token: write
-concurrency: { group: pages, cancel-in-progress: true }
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  build:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - run: npm install
+        with:
+          node-version: 22
+      # Воспроизводимая установка по lock-файлу. Пока package-lock.json нет в репозитории,
+      # он создаётся здесь (npm install) и выкладывается артефактом «package-lock» —
+      # его нужно скачать и закоммитить, после чего всегда будет использоваться npm ci.
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            echo "::warning::package-lock.json отсутствует — создаю его через npm install. Скачайте артефакт package-lock и закоммитьте файл."
+            npm install
+          fi
+      - name: Upload generated package-lock.json
+        if: hashFiles('package-lock.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-lock
+          path: package-lock.json
+      - run: npm run check:deps
       - run: npm run typecheck
       - run: npm run build
-      - uses: actions/upload-pages-artifact@v3
-        with: { path: dist }
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Tests (core + e2e)
+        run: npm test
+      - name: Upload site for Pages
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
   deploy:
-    needs: build
+    needs: check
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: { name: github-pages, url: '${{ steps.d.outputs.page_url }}' }
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - id: d
+      - id: deployment
         uses: actions/deploy-pages@v4

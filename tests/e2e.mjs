@@ -51,6 +51,12 @@ const addViaSheet = async ({ type, title, file, due }) => {
   await page.waitForTimeout(350);
 };
 const dbl = async (loc) => { const b = await loc.boundingBox(); await page.mouse.dblclick(b.x + b.width / 2, b.y + b.height / 2); await page.waitForTimeout(400); };
+/** Ждать, пока элемент станет видимым (до 5 с), — без зависимости от скорости машины. */
+const vis = (loc) => loc.waitFor({ state: 'visible', timeout: 5000 }).then(() => true, () => false);
+/** Ждать, пока число элементов станет равным n (до 5 с). */
+const countIs = async (loc, n) => { for (let i = 0; i < 50; i++) { if ((await loc.count()) === n) return true; await page.waitForTimeout(100); } return false; };
+/** Ждать, пока условие станет истинным (до 5 с). */
+const eventually = async (fn) => { for (let i = 0; i < 50; i++) { if (await fn()) return true; await page.waitForTimeout(100); } return false; };
 /** Прочитать таблицу IndexedDB напрямую (то, что реально сохранено). */
 const idb = (dbName, table) => page.evaluate(([n, t]) => new Promise((res, rej) => {
   const r = indexedDB.open(n);
@@ -72,21 +78,23 @@ await page.goto(base);
 await page.waitForSelector('.world');
 
 await step('Мир', async () => {
-  check('мир: 9 областей на карте', (await page.locator('.area').count()) === 9);
-  check('пустой старт: нет ни одного объекта', (await page.locator('.area__stars i').count()) === 0);
+  check('мир: 9 областей на карте', await countIs(page.locator('.area'), 9));
+  check('пустой старт: в базе нет ни одного объекта (тест начинается с чистого браузера)',
+    (await idb('masterskaya', 'entities')).length === 0 && (await idb('masterskaya', 'relations')).length === 0);
+  check('пустой старт: созданы только 10 пустых системных пространств', (await idb('masterskaya', 'spaces')).length === 10);
 });
 
 await step('Главная', async () => {
   await enterArea('home');
-  check('Главная пуста и приглашает к действию', await page.getByText('Положить первую мысль').isVisible());
+  check('Главная пуста и приглашает к действию', await vis(page.getByText('Положить первую мысль')));
   await page.getByText('Положить первую мысль').click();
   await page.fill('[data-testid=add-title]', 'Дом внутри горы');
   await page.click('[data-testid=add-save]');
   await page.waitForTimeout(400);
-  check('идея появилась на карте', await node('Дом внутри горы').isVisible());
+  check('идея появилась на карте', await vis(node('Дом внутри горы')));
   await page.reload();
   await page.waitForSelector('.map__node .node');
-  check('идея сохранилась после перезагрузки', await node('Дом внутри горы').isVisible());
+  check('идея сохранилась после перезагрузки', await vis(node('Дом внутри горы')));
   const idea = await entityBy('Дом внутри горы');
   check('в базе: одна идея, событие в журнале, запись в outbox', idea?.type === 'idea'
     && (await idb('masterskaya', 'events')).some((e) => e.entityId === idea.id && e.type === 'entity.created')
@@ -108,13 +116,13 @@ await step('Главная', async () => {
 await step('Вуз', async () => {
   await enterArea('campus');
   await addViaSheet({ title: 'Механика грунтов' });
-  check('дисциплина на карте кампуса', await node('Механика грунтов').isVisible());
+  check('дисциплина на карте кампуса', await vis(node('Механика грунтов')));
   await dbl(node('Механика грунтов'));
   check('двойное нажатие открывает карту дисциплины', (await page.textContent('[data-testid=where]')) === 'Механика грунтов');
   await addViaSheet({ type: 'Тема', title: 'Основания' });
   await addViaSheet({ type: 'Задание', title: 'Практическая работа №2', due: '2026-10-18' });
-  check('тема и задание на карте дисциплины', (await nodes().count()) === 2);
-  check('срок задания показан тихо: «до 18 октября»', await node('Практическая').getByText('до 18 октября').isVisible());
+  check('тема и задание на карте дисциплины', await countIs(nodes(), 2));
+  check('срок задания показан тихо: «до 18 октября»', await vis(node('Практическая').getByText('до 18 октября')));
   // связь ручкой
   await node('Основания').click();
   await page.waitForTimeout(350);
@@ -123,25 +131,25 @@ await step('Вуз', async () => {
   await page.mouse.move(h.x, h.y); await page.mouse.down();
   await page.mouse.move(t.x, t.y, { steps: 10 }); await page.mouse.up();
   await page.waitForTimeout(400);
-  check('связь протянута ручкой от узла к узлу', await page.locator('[data-testid=kindbar]').isVisible());
+  check('связь протянута ручкой от узла к узлу', await vis(page.locator('[data-testid=kindbar]')));
   await page.locator('[data-testid=kindbar]').getByText('Использую').click();
   await page.locator('[data-testid=kindbar]').getByText('Готово').click();
-  check('на карте видна связь с типом', (await page.locator('.edge--using').count()) === 1);
+  check('на карте видна связь с типом', await countIs(page.locator('.edge--using'), 1));
   // изменить тип уже существующей связи в карточке
   await dbl(node('Основания'));
   const relsBefore = (await real('relations')).length;
   const sel = page.locator('[data-testid=links] select').first();
   await sel.selectOption('example');
-  await page.waitForTimeout(400);
+  await eventually(async () => (await real('relations')).some((r) => r.kind === 'example'));
   await page.keyboard.press('Escape');
   const rels = await real('relations');
   check('тип связи меняется (на карте и в базе), новая связь не создаётся',
-    (await page.locator('.edge--example').count()) === 1 && rels.length === relsBefore && rels.some((r) => r.kind === 'example'), `${relsBefore} → ${rels.length}`);
+    await countIs(page.locator('.edge--example'), 1) && rels.length === relsBefore && rels.some((r) => r.kind === 'example'), `${relsBefore} → ${rels.length}`);
   // статус понимания
   await dbl(node('Основания'));
   await page.locator('[data-testid=panel]').getByRole('button', { name: 'Понимаю' }).click();
   await page.waitForTimeout(300);
-  check('статус понимания меняется и виден на узле', await node('Основания').getByText('Понимаю').isVisible());
+  check('статус понимания меняется и виден на узле', await vis(node('Основания').getByText('Понимаю')));
   await page.keyboard.press('Escape');
 });
 
@@ -161,7 +169,7 @@ await step('Сенсор и стилус на карте', async () => {
   const o = await centerOf(node('Основания'));
   await fire('pointerdown', o.x, o.y, 'touch', 3);
   await page.waitForTimeout(700);
-  check('долгое нажатие пальцем открывает меню узла', await page.locator('.menu').isVisible());
+  check('долгое нажатие пальцем открывает меню узла', await vis(page.locator('.menu')));
   await fire('pointerup', o.x, o.y, 'touch', 3);
   await page.keyboard.press('Escape');
   await page.waitForTimeout(200);
@@ -175,7 +183,7 @@ await step('Сенсор и стилус на карте', async () => {
   for (let i = 1; i <= 8; i++) await fire('pointermove', a.x + ((q.x - a.x) * i) / 8, a.y + ((q.y - a.y) * i) / 8, 'pen', 9);
   await fire('pointerup', q.x, q.y, 'pen', 9);
   await page.waitForTimeout(400);
-  check('стилус протягивает связь от узла к узлу', await page.locator('[data-testid=kindbar]').isVisible() && (await page.locator('.edges .edge').count()) > before);
+  check('стилус протягивает связь от узла к узлу', await vis(page.locator('[data-testid=kindbar]')) && (await page.locator('.edges .edge').count()) > before);
   await page.locator('[data-testid=kindbar]').getByText('Готово').click();
 });
 
@@ -188,7 +196,7 @@ await step('Исследования', async () => {
   const pdf = join(dir, 'underground.pdf');
   writeFileSync(pdf, '%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF');
   await addViaSheet({ type: 'PDF', title: 'Подземное строительство', file: pdf });
-  check('PDF добавлен внутри исследования', await node('Подземное строительство').isVisible());
+  check('PDF добавлен внутри исследования', await vis(node('Подземное строительство')));
 });
 
 await step('Библиотека', async () => {
@@ -196,15 +204,15 @@ await step('Библиотека', async () => {
   await addViaSheet({ type: 'Ссылка', title: 'Статья про фундаменты в скале' });
   await enterArea('library');
   const unsorted = page.locator('[data-testid=unsorted]');
-  check('быстрое сохранение — в «Неразобранном»', await unsorted.getByText('Статья про фундаменты').isVisible());
+  check('быстрое сохранение — в «Неразобранном»', await vis(unsorted.getByText('Статья про фундаменты')));
   check('PDF из исследования НЕ в «Неразобранном»', !(await unsorted.getByText('Подземное строительство').count()));
-  check('PDF из исследования доступен для карты Библиотеки', await page.locator('[data-testid=elsewhere]').getByText('Подземное строительство').isVisible());
+  check('PDF из исследования доступен для карты Библиотеки', await vis(page.locator('[data-testid=elsewhere]').getByText('Подземное строительство')));
   await unsorted.getByText('Статья про фундаменты').click();
   await page.waitForTimeout(400);
-  check('материал из лотка встал на карту Библиотеки', await node('Статья про фундаменты').isVisible());
+  check('материал из лотка встал на карту Библиотеки', await vis(node('Статья про фундаменты')));
   await page.locator('[data-testid=elsewhere]').getByText('Подземное строительство').click();
   await page.waitForTimeout(400);
-  check('PDF стоит и в исследовании, и в Библиотеке', (await nodes().count()) === 2);
+  check('PDF стоит и в исследовании, и в Библиотеке', await countIs(nodes(), 2));
   const pdfs = (await real('entities')).filter((e) => e.title === 'Подземное строительство');
   const pdfPlaces = pdfs.length === 1 ? (await real('placements')).filter((p) => p.entityId === pdfs[0].id) : [];
   check('в базе один объект PDF и две его позиции — копий нет', pdfs.length === 1 && pdfPlaces.length === 2, `объектов ${pdfs.length}, позиций ${pdfPlaces.length}`);
@@ -220,7 +228,7 @@ await step('Связь через поиск', async () => {
   await page.locator('[data-testid=kindbar]').getByText('Исследую').click();
   await page.locator('[data-testid=kindbar]').getByText('Готово').click();
   await dbl(node('Дом внутри горы'));
-  check('связь с исследованием видна в карточке идеи', await page.locator('[data-testid=links]').getByText('Можно ли построить').isVisible());
+  check('связь с исследованием видна в карточке идеи', await vis(page.locator('[data-testid=links]').getByText('Можно ли построить')));
   await page.keyboard.press('Escape');
 });
 
@@ -263,15 +271,15 @@ await step('Студия', async () => {
   await page.waitForTimeout(300);
   check('эскиз сохранён и открывается снова (2 штриха)', (await paths()) === 2);
   await enterArea('studio');
-  check('эскиз лежит в Студии с превью', (await page.locator('.node-type--sketch svg path').count()) === 2);
+  check('эскиз лежит в Студии с превью', await countIs(page.locator('.node-type--sketch svg path'), 2));
   await dbl(nodes().first());
-  check('эскиз открывается из Студии для редактирования', await page.locator('[data-testid=canvas]').isVisible());
+  check('эскиз открывается из Студии для редактирования', await vis(page.locator('[data-testid=canvas]')));
 });
 
 await step('Идея → проект', async () => {
   await toWorld();
   await page.waitForTimeout(900);
-  check('Сириан тихо показывает, что у него есть мысль', await page.locator('.sirian-dock.has-thought').isVisible());
+  check('Сириан тихо показывает, что у него есть мысль', await vis(page.locator('.sirian-dock.has-thought')));
   await page.click('[data-testid=sirian]');
   await page.locator('[data-testid=proposal]').getByText('Превратить в проект').click();
   await page.waitForSelector('.picklist li');
@@ -284,8 +292,8 @@ await step('Идея → проект', async () => {
   await page.click('[data-testid=grow-confirm]');
   await page.waitForTimeout(800);
   check('открылась карта нового проекта', (await page.textContent('[data-testid=where]')) === 'Дом внутри горы');
-  check('на карте проекта: идея, исследование, PDF (эскиз не выбран)', (await nodes().count()) === 3 && !(await page.locator('.node-type--sketch').count()), String(await nodes().count()));
-  check('на карте проекта видно, из какой идеи он вырос', await page.locator('[data-testid=origin]').getByText('Дом внутри горы').isVisible());
+  check('на карте проекта: идея, исследование, PDF (эскиз не выбран)', await countIs(nodes(), 3) && !(await page.locator('.node-type--sketch').count()), String(await nodes().count()));
+  check('на карте проекта видно, из какой идеи он вырос', await vis(page.locator('[data-testid=origin]').getByText('Дом внутри горы')));
   check('исходные связи между ними видны на карте проекта', (await page.locator('.edge--researching, .edge--source').count()) >= 2);
   const ents = await real('entities');
   const project = ents.find((e) => e.type === 'project');
@@ -298,14 +306,14 @@ await step('Идея → проект', async () => {
   const partOf = rels.filter((r) => r.kind === 'part_of' && r.toId === project?.id).map((r) => ents.find((e) => e.id === r.fromId)?.type).sort();
   check('в базе: выбранные исследование и PDF связаны с проектом, эскиз — нет', partOf.join() === 'pdf,research', partOf.join());
   await enterArea('home');
-  check('идея осталась на Главной', await node('Дом внутри горы').isVisible());
+  check('идея осталась на Главной', await vis(node('Дом внутри горы')));
 });
 
 await step('Поиск', async () => {
   await page.click('[data-testid=open-search]');
   await page.fill('[data-testid=search-input]', 'фундамент');
   await page.waitForTimeout(300);
-  check('поиск «фундамент» находит статью', await page.locator('[data-testid=search-results]').getByText('Статья про фундаменты').isVisible());
+  check('поиск «фундамент» находит статью', await vis(page.locator('[data-testid=search-results]').getByText('Статья про фундаменты')));
   await page.keyboard.press('Escape');
 });
 
@@ -320,7 +328,7 @@ await step('Удаление', async () => {
   await page.click('[data-testid=open-search]');
   await page.fill('[data-testid=search-input]', 'Подземное');
   await page.waitForTimeout(300);
-  check('удалённый PDF больше нигде не находится', (await page.locator('[data-testid=search-results] button').count()) === 0);
+  check('удалённый PDF больше нигде не находится', await countIs(page.locator('[data-testid=search-results] button'), 0));
   await page.keyboard.press('Escape');
   check('в базе: у удалённого PDF не осталось ни связей, ни позиций, файл удалён',
     !(await entityBy('Подземное строительство'))
@@ -341,7 +349,7 @@ await step('Экспорт / импорт', async () => {
   await page.getByRole('button', { name: 'Удалить всё' }).click();
   await page.locator('.confirm').getByRole('button', { name: 'Удалить всё' }).click();
   await page.waitForTimeout(500);
-  check('после очистки мир пуст и база пуста', (await page.locator('.area__stars i').count()) === 0 && (await idb('masterskaya', 'entities')).length === 0);
+  check('после очистки мир пуст и база пуста', await countIs(page.locator('.area__stars i'), 0) && (await idb('masterskaya', 'entities')).length === 0);
   await page.click('[data-testid=open-settings]');
   await page.setInputFiles('[data-testid=import-file]', archivePath);
   await page.locator('.confirm').getByRole('button', { name: 'Заменить' }).click();
@@ -349,14 +357,14 @@ await step('Экспорт / импорт', async () => {
   const after = await snapshot();
   check('импорт вернул всю Мастерскую: объекты, связи, позиции, эскизы', before.join() === after.join() && before[0] > 0, `${before} → ${after}`);
   await enterArea('home');
-  check('после импорта идея на месте', await node('Дом внутри горы').isVisible());
+  check('после импорта идея на месте', await vis(node('Дом внутри горы')));
 });
 
 await step('Демо-режим', async () => {
   await page.click('[data-testid=open-settings]');
   await page.click('[data-testid=mode-demo]');
   await page.waitForSelector('.world');
-  check('демо начинается со своей пустой базы', (await page.locator('.area__stars i').count()) === 0);
+  check('демо начинается со своей пустой базы', await countIs(page.locator('.area__stars i'), 0) && (await idb('masterskaya-demo', 'entities')).length === 0);
   await page.click('[data-testid=open-settings]');
   await page.click('[data-testid=seed-demo]');
   await page.waitForTimeout(1200);
@@ -365,7 +373,7 @@ await step('Демо-режим', async () => {
   await page.getByRole('radio', { name: 'Моя Мастерская' }).click();
   await page.waitForSelector('.world');
   await enterArea('campus');
-  check('реальная Мастерская не смешалась с демо (на карте Вуза одна своя дисциплина)', (await nodes().count()) === 1);
+  check('реальная Мастерская не смешалась с демо (на карте Вуза одна своя дисциплина)', await countIs(nodes(), 1));
   const realTitles = (await real('entities')).map((e) => e.title);
   const demoTitles = live(await idb('masterskaya-demo', 'entities')).map((e) => e.title);
   check('в базе: демо-объекты лежат только в masterskaya-demo', demoTitles.includes('Темппелиаукио') && !realTitles.includes('Темппелиаукио'));
@@ -386,7 +394,7 @@ await step('Офлайн', async () => {
   await page.waitForSelector('.world', { timeout: 8000 });
   await page.click('[data-testid=area-home]');
   await page.waitForSelector('.map__node .node');
-  check('без сети приложение открывается и данные на месте', await node('Дом внутри горы').isVisible());
+  check('без сети приложение открывается и данные на месте', await vis(node('Дом внутри горы')));
   await ctx.setOffline(false);
 });
 
