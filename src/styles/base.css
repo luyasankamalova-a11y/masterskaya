@@ -1,0 +1,78 @@
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  background: var(--night);
+  color: var(--milk);
+  font: 16px/1.45 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+input, textarea, select { -webkit-user-select: text; user-select: text; }
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--frost); outline-offset: 2px; }
+h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: 0.005em; margin: 0; }
+
+.app { position: fixed; inset: 0; overflow: hidden; }
+.stage { position: absolute; inset: 0; }
+.boot { position: fixed; inset: 0; background: radial-gradient(circle at 50% 50%, var(--night-2), var(--night)); }
+.screen-message { position: absolute; inset: 0; display: grid; place-items: center; padding: 32px; text-align: center; color: var(--milk-2); font-family: var(--serif); font-size: 1.2rem; }
+
+/* Кнопки */
+.btn {
+  min-height: var(--tap); padding: 0 16px; border-radius: var(--radius-m);
+  border: 1px solid var(--hair-2); background: rgba(236, 230, 218, 0.04);
+  display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
+}
+.btn:hover { background: rgba(236, 230, 218, 0.09); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn--primary { background: var(--gold); color: #1a1408; border-color: var(--gold); font-weight: 600; }
+.btn--primary:hover { background: #e6bb72; }
+.btn--danger { border-color: rgba(224, 138, 122, 0.5); color: var(--danger); }
+.btn--small { min-height: 36px; padding: 0 12px; font-size: 0.9rem; }
+.icon-btn {
+  width: var(--tap); height: var(--tap); border-radius: 50%; border: 1px solid transparent;
+  background: transparent; display: inline-grid; place-items: center; font-size: 1.15rem; flex: none;
+}
+.icon-btn:hover { background: rgba(236, 230, 218, 0.08); }
+.icon-btn--small { width: 34px; height: 34px; font-size: 0.95rem; }
+.linklike { background: none; border: 0; padding: 0; text-align: left; color: var(--milk); text-decoration: underline; text-decoration-color: var(--hair-2); text-underline-offset: 3px; }
+.link-out { color: var(--frost); font-size: 0.9rem; }
+
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.row-end { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+.row-between { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.hint { color: var(--milk-3); font-size: 0.88rem; margin: 6px 0; }
+.lead { color: var(--milk-2); margin: 0 0 14px; }
+
+/* Поля */
+.field { display: flex; flex-direction: column; gap: 6px; margin: 14px 0; }
+.field > span:first-child { font-size: 0.82rem; color: var(--milk-3); }
+.field input, .field textarea, .field select, .search-input {
+  width: 100%; min-height: var(--tap); padding: 10px 12px; border-radius: var(--radius-s);
+  border: 1px solid var(--hair-2); background: rgba(5, 12, 24, 0.5);
+}
+.field textarea { resize: vertical; min-height: 64px; line-height: 1.5; }
+.field select { appearance: none; }
+.check { display: flex; gap: 10px; align-items: center; min-height: var(--tap); }
+.check input { width: 20px; height: 20px; accent-color: var(--gold); }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  min-height: 38px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--hair-2);
+  background: transparent; display: inline-flex; align-items: center; gap: 6px; font-size: 0.92rem;
+}
+.chip.is-on { border-color: var(--gold); background: var(--gold-soft); }
+.chip--small { min-height: 32px; font-size: 0.85rem; padding: 0 10px; }
+.chip--status i { width: 10px; height: 10px; border-radius: 50%; background: var(--status); }
+
+.segmented { display: inline-flex; border: 1px solid var(--hair-2); border-radius: var(--radius-m); overflow: hidden; }
+.segmented button { min-height: var(--tap); padding: 0 16px; border: 0; background: transparent; }
+.segmented button.is-on { background: var(--gold-soft); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}

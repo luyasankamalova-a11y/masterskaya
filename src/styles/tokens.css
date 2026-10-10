@@ -1,0 +1,41 @@
+/* Токены Мастерской: глубокий синий, графит, глубокий зелёный, молочный текст,
+   мягкое золото, холодный голубой. Изумрудный — только глаза Сириана. */
+:root {
+  --night: #0d1828;
+  --night-2: #12213a;
+  --night-3: #18294a;
+  --graphite: #222a36;
+  --pine: #163a33;
+  --milk: #ece6da;
+  --milk-2: #b9bcc2;
+  --milk-3: #7f8896;
+  --gold: #d9ad62;
+  --gold-soft: rgba(217, 173, 98, 0.22);
+  --frost: #86b6dc;
+  --frost-soft: rgba(134, 182, 220, 0.16);
+  --emerald: #33c27a;
+  --danger: #e08a7a;
+
+  --glass: rgba(20, 33, 56, 0.72);
+  --glass-strong: rgba(17, 28, 47, 0.94);
+  --hair: rgba(236, 230, 218, 0.13);
+  --hair-2: rgba(236, 230, 218, 0.24);
+  --shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.7);
+
+  /* Пять уровней понимания: ⚪ 🟡 🟢 🔵 🟣 */
+  --st-0: #7c8492;
+  --st-1: #dcb44c;
+  --st-2: #5fb27a;
+  --st-3: #5e9fdc;
+  --st-4: #a581dc;
+
+  --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', 'PT Serif', Georgia, serif;
+  --sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  --tap: 44px;
+  --radius-s: 6px;
+  --radius-m: 12px;
+  --radius-l: 20px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}

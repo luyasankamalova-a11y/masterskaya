@@ -1,0 +1,29 @@
+{
+  "name": "masterskaya",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Моя Мастерская — личный инженерный мир знаний, исследований, объектов и проектов",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4173",
+    "typecheck": "tsc --noEmit",
+    "test": "vite build && node tests/e2e.mjs --serve dist"
+  },
+  "dependencies": {
+    "dexie": "^4.0.10",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "playwright": "^1.56.0",
+    "typescript": "^5.6.0",
+    "vite": "^7.0.0",
+    "vite-plugin-pwa": "^1.0.0"
+  }
+}

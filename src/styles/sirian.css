@@ -1,0 +1,52 @@
+/* Сириан (этап 0 — статичный рендерер): изображения из канонического референса,
+   спокойное «дыхание» и мягкое золотое свечение. Пламя — только в особый момент. */
+.sirian-dock {
+  position: fixed; right: 16px; bottom: calc(16px + var(--safe-bottom)); z-index: 35;
+  border: 0; padding: 0; background: none; border-radius: 50%;
+}
+.sirian { position: relative; display: block; border-radius: 50%; overflow: hidden; isolation: isolate; }
+.sirian img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sirian--avatar {
+  box-shadow: 0 0 0 1.5px rgba(217, 173, 98, 0.7), 0 0 22px -2px rgba(217, 173, 98, 0.45), 0 10px 24px -8px #000;
+  animation: breathe 5.5s ease-in-out infinite;
+}
+.sirian--avatar img { object-position: 50% 40%; }
+@keyframes breathe { 50% { transform: scale(1.035); box-shadow: 0 0 0 1.5px rgba(217, 173, 98, 0.85), 0 0 30px 0 rgba(217, 173, 98, 0.55), 0 10px 24px -8px #000; } }
+.sirian__glow { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: screen; opacity: 0; transition: opacity 0.6s; }
+.sirian__stars { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.6s;
+  background-image: radial-gradient(1px 1px at 20% 70%, #fff, transparent), radial-gradient(1px 1px at 70% 80%, #cfe3ff, transparent), radial-gradient(1.2px 1.2px at 35% 88%, #fff, transparent); }
+
+/* Тонкие оттенки по пространствам */
+.sirian-tint--campus .sirian__glow { opacity: 0.35; background: radial-gradient(circle at 50% 60%, rgba(150, 190, 230, 0.35), transparent 70%); }
+.sirian-tint--research .sirian__stars { opacity: 0.9; }
+.sirian-tint--inspiration .sirian__glow { opacity: 0.5; background: radial-gradient(circle at 50% 60%, rgba(240, 190, 110, 0.4), transparent 70%); }
+.sirian-tint--path .sirian__glow { opacity: 0.4; background: radial-gradient(circle at 50% 60%, rgba(190, 210, 120, 0.35), transparent 70%); }
+.sirian-tint--project .sirian__glow, .sirian-tint--studio .sirian__glow { opacity: 0.3;
+  background: repeating-linear-gradient(60deg, rgba(217, 173, 98, 0.18) 0 1px, transparent 1px 14px); }
+
+/* Особый момент: взлёт с пламенем */
+.sirian--flame { animation: flare 2.2s ease-out; }
+@keyframes flare {
+  30% { box-shadow: 0 0 0 2px #f2c27a, 0 0 60px 14px rgba(240, 160, 70, 0.75); transform: scale(1.12); }
+}
+
+.sirian-dock.has-thought .sirian--avatar { box-shadow: 0 0 0 2px var(--gold), 0 0 26px 2px rgba(217, 173, 98, 0.6); }
+.sirian-dock__thought {
+  position: absolute; right: -2px; top: -2px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--gold); border: 2px solid var(--night); animation: thought 3s ease-in-out infinite;
+}
+@keyframes thought { 50% { opacity: 0.5; } }
+
+.sirian-sheet .sheet__body { padding-top: 0; }
+.sirian-sheet__portrait { margin: 0 -22px 12px; height: 220px; overflow: hidden; position: relative; }
+.sirian-sheet__portrait .sirian { border-radius: 0; height: 100%; }
+.sirian--portrait img { object-position: 60% 25%; }
+.sirian-sheet__portrait::after { content: ''; position: absolute; inset: 0; background: linear-gradient(transparent 55%, var(--glass-strong)); }
+.proposal { border: 1px solid var(--gold); border-radius: var(--radius-m); padding: 12px 14px; margin-bottom: 12px; background: var(--gold-soft); }
+.proposal p { margin: 0 0 10px; font-family: var(--serif); font-size: 1.05rem; }
+.chat { display: grid; gap: 8px; margin: 8px 0; }
+.chat__line { margin: 0; padding: 8px 12px; border-radius: var(--radius-m); max-width: 90%; }
+.chat__line--sirian { background: rgba(236, 230, 218, 0.06); font-family: var(--serif); }
+.chat__line--me { justify-self: end; background: var(--frost-soft); }
+.chat__ask { display: flex; gap: 8px; }
+.chat__ask input { flex: 1; min-height: var(--tap); padding: 0 12px; border-radius: var(--radius-s); border: 1px solid var(--hair-2); background: rgba(5, 12, 24, 0.5); }

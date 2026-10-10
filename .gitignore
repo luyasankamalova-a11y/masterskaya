@@ -1,0 +1,6 @@
+node_modules/
+dist/
+dist-offline/
+tools/offline/.core-test/
+tools/offline/.dbg/
+*.log
