@@ -1,7 +1,10 @@
 // Скриншоты для визуальной проверки: демо-база, планшет горизонтально/вертикально и телефон.
-import { chromium } from 'playwright';
 import { resolve } from 'node:path';
 import { serve } from '../../tests/serve.mjs';
+import { importPkg, requirePackages } from '../../tests/modules.mjs';
+
+requirePackages(['playwright'], 'Скриншоты');
+const { chromium } = await importPkg('playwright');
 
 const out = process.argv[2] ?? '/tmp';
 const srv = await serve(resolve(import.meta.dirname, '../../dist-offline'));

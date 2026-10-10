@@ -15,5 +15,5 @@
       "zustand": ["./zustand.ts"]
     }
   },
-  "include": ["../../src", "./types", "./vite-env.d.ts"]
+  "include": ["../../src", "../../tests/core.journey.ts", "./types", "./vite-env.d.ts"]
 }

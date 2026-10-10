@@ -18,15 +18,16 @@ import { confirmAction } from './confirm';
 import { dateLabel, dueLabel, useImageUrl } from './format';
 
 export function EntityPanel({ id }: { id: string }) {
-  const e = useLive(() => getEntity(id), [id], ['entities']);
+  const e = useLive(() => getEntity(id).then((x) => x ?? null), [id], ['entities']);
   const close = () => useUI.getState().showPanel(null);
   useEffect(() => {
     const k = (ev: KeyboardEvent) => { if (ev.key === 'Escape') close(); };
     addEventListener('keydown', k);
     return () => removeEventListener('keydown', k);
   }, []);
-  if (e === undefined) return null;
-  if (!e) { close(); return null; }
+  // объект удалён — карточка закрывается (не во время отрисовки)
+  useEffect(() => { if (e === null) close(); }, [e]);
+  if (!e) return null;
   const def = typeDef(e.type);
 
   return (

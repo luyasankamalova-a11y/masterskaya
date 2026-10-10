@@ -2,11 +2,16 @@
 // Проходит весь сценарий этапа 0 так, как это делал бы пользователь.
 //   node tests/e2e.mjs --serve dist          (после npm run build)
 //   node tests/e2e.mjs --url http://localhost:5173/
-import { chromium } from 'playwright';
+// Проверки двух видов: что видно на экране и что реально записано в IndexedDB.
+// Нужны пакет playwright и браузер Chromium (`npx playwright install chromium`).
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { serve } from './serve.mjs';
+import { importPkg, requirePackages } from './modules.mjs';
+
+requirePackages(['playwright'], 'Сквозной тест');
+const { chromium } = await importPkg('playwright');
 
 const arg = (k) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : undefined; };
 const srv = arg('--url') ? { url: arg('--url'), close() {} } : await serve(resolve(arg('--serve') ?? 'dist'));
@@ -14,9 +19,17 @@ const base = srv.url;
 
 const results = [];
 const check = (name, ok, detail = '') => { results.push({ name, ok: !!ok, detail }); console.log(`${ok ? '✓' : '✗'} ${name}${ok ? '' : '  → ' + detail}`); };
+const skipped = [];
+const skip = (name, why) => { skipped.push(name); console.log(`− ПРОПУЩЕНО: ${name} (${why})`); };
 const step = async (name, fn) => { try { await fn(); } catch (e) { check(name, false, e.message.split('\n')[0]); } };
 
-const browser = await chromium.launch();
+let browser;
+try { browser = await chromium.launch(); }
+catch (e) {
+  console.error(`✗ Сквозной тест НЕ выполнен: Chromium не запускается (${e.message.split('\n')[0]}). Выполните: npx playwright install chromium`);
+  srv.close();
+  process.exit(2);
+}
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, hasTouch: true, acceptDownloads: true });
 const page = await ctx.newPage();
 const errors = [];
@@ -38,6 +51,21 @@ const addViaSheet = async ({ type, title, file, due }) => {
   await page.waitForTimeout(350);
 };
 const dbl = async (loc) => { const b = await loc.boundingBox(); await page.mouse.dblclick(b.x + b.width / 2, b.y + b.height / 2); await page.waitForTimeout(400); };
+/** Прочитать таблицу IndexedDB напрямую (то, что реально сохранено). */
+const idb = (dbName, table) => page.evaluate(([n, t]) => new Promise((res, rej) => {
+  const r = indexedDB.open(n);
+  r.onsuccess = () => {
+    const d = r.result;
+    if (!d.objectStoreNames.contains(t)) { d.close(); res([]); return; }
+    const q = d.transaction(t).objectStore(t).getAll();
+    q.onsuccess = () => { d.close(); res(q.result); };
+    q.onerror = () => rej(q.error);
+  };
+  r.onerror = () => rej(r.error);
+}), [dbName, table]);
+const live = (rows) => rows.filter((x) => !x.deletedAt);
+const real = (t) => idb('masterskaya', t).then(live);
+const entityBy = async (title) => (await real('entities')).find((e) => e.title === title);
 const centerOf = async (loc) => { const b = await loc.boundingBox(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; };
 
 await page.goto(base);
@@ -59,13 +87,11 @@ await step('Главная', async () => {
   await page.reload();
   await page.waitForSelector('.map__node .node');
   check('идея сохранилась после перезагрузки', await node('Дом внутри горы').isVisible());
-  const readPos = () => page.evaluate(() => new Promise((res) => {
-    const r = indexedDB.open('masterskaya');
-    r.onsuccess = () => {
-      const q = r.result.transaction('placements').objectStore('placements').getAll();
-      q.onsuccess = () => { const p = q.result.find((x) => x.spaceId === 'space:home' && !x.deletedAt); r.result.close(); res({ x: p.x, y: p.y }); };
-    };
-  }));
+  const idea = await entityBy('Дом внутри горы');
+  check('в базе: одна идея, событие в журнале, запись в outbox', idea?.type === 'idea'
+    && (await idb('masterskaya', 'events')).some((e) => e.entityId === idea.id && e.type === 'entity.created')
+    && (await idb('masterskaya', 'outbox')).some((o) => o.recordId === idea.id));
+  const readPos = async () => { const p = (await real('placements')).find((x) => x.spaceId === 'space:home'); return { x: p.x, y: p.y }; };
   const p0 = await readPos();
   const before = await centerOf(node('Дом внутри горы'));
   await page.mouse.move(before.x, before.y);
@@ -101,6 +127,16 @@ await step('Вуз', async () => {
   await page.locator('[data-testid=kindbar]').getByText('Использую').click();
   await page.locator('[data-testid=kindbar]').getByText('Готово').click();
   check('на карте видна связь с типом', (await page.locator('.edge--using').count()) === 1);
+  // изменить тип уже существующей связи в карточке
+  await dbl(node('Основания'));
+  const relsBefore = (await real('relations')).length;
+  const sel = page.locator('[data-testid=links] select').first();
+  await sel.selectOption('example');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Escape');
+  const rels = await real('relations');
+  check('тип связи меняется (на карте и в базе), новая связь не создаётся',
+    (await page.locator('.edge--example').count()) === 1 && rels.length === relsBefore && rels.some((r) => r.kind === 'example'), `${relsBefore} → ${rels.length}`);
   // статус понимания
   await dbl(node('Основания'));
   await page.locator('[data-testid=panel]').getByRole('button', { name: 'Понимаю' }).click();
@@ -168,7 +204,10 @@ await step('Библиотека', async () => {
   check('материал из лотка встал на карту Библиотеки', await node('Статья про фундаменты').isVisible());
   await page.locator('[data-testid=elsewhere]').getByText('Подземное строительство').click();
   await page.waitForTimeout(400);
-  check('тот же PDF на карте Библиотеки — позиция, не копия', (await nodes().count()) === 2);
+  check('PDF стоит и в исследовании, и в Библиотеке', (await nodes().count()) === 2);
+  const pdfs = (await real('entities')).filter((e) => e.title === 'Подземное строительство');
+  const pdfPlaces = pdfs.length === 1 ? (await real('placements')).filter((p) => p.entityId === pdfs[0].id) : [];
+  check('в базе один объект PDF и две его позиции — копий нет', pdfs.length === 1 && pdfPlaces.length === 2, `объектов ${pdfs.length}, позиций ${pdfPlaces.length}`);
 });
 
 await step('Связь через поиск', async () => {
@@ -238,12 +277,26 @@ await step('Идея → проект', async () => {
   await page.waitForSelector('.picklist li');
   await page.waitForTimeout(300);
   check('в списке роста: исследование, PDF, эскиз', (await page.locator('.picklist li').count()) >= 3, String(await page.locator('.picklist li').count()));
+  // выбор: эскиз НЕ берём в проект
+  await page.locator('.picklist li', { hasText: 'Эскиз' }).locator('input').uncheck();
+  const entBefore = (await real('entities')).length;
+  const relIdsBefore = (await real('relations')).map((r) => r.id);
   await page.click('[data-testid=grow-confirm]');
   await page.waitForTimeout(800);
   check('открылась карта нового проекта', (await page.textContent('[data-testid=where]')) === 'Дом внутри горы');
-  check('на карте проекта: идея, исследование, PDF, эскиз', (await nodes().count()) === 4, String(await nodes().count()));
+  check('на карте проекта: идея, исследование, PDF (эскиз не выбран)', (await nodes().count()) === 3 && !(await page.locator('.node-type--sketch').count()), String(await nodes().count()));
   check('на карте проекта видно, из какой идеи он вырос', await page.locator('[data-testid=origin]').getByText('Дом внутри горы').isVisible());
-  check('исходные связи между ними видны на карте проекта', (await page.locator('.edge--researching, .edge--source, .edge--drew').count()) >= 3);
+  check('исходные связи между ними видны на карте проекта', (await page.locator('.edge--researching, .edge--source').count()) >= 2);
+  const ents = await real('entities');
+  const project = ents.find((e) => e.type === 'project');
+  const idea = ents.find((e) => e.title === 'Дом внутри горы' && e.type === 'idea');
+  const rels = await real('relations');
+  check('в базе: появился ровно один новый объект — проект', ents.length === entBefore + 1 && !!project);
+  check('в базе: идея осталась идеей', !!idea);
+  check('в базе: связь «проект —вырос из→ идея»', rels.some((r) => r.kind === 'grew_from' && r.fromId === project?.id && r.toId === idea?.id));
+  check('в базе: все прежние связи сохранились', relIdsBefore.every((id) => rels.some((r) => r.id === id)));
+  const partOf = rels.filter((r) => r.kind === 'part_of' && r.toId === project?.id).map((r) => ents.find((e) => e.id === r.fromId)?.type).sort();
+  check('в базе: выбранные исследование и PDF связаны с проектом, эскиз — нет', partOf.join() === 'pdf,research', partOf.join());
   await enterArea('home');
   check('идея осталась на Главной', await node('Дом внутри горы').isVisible());
 });
@@ -259,6 +312,7 @@ await step('Поиск', async () => {
 await step('Удаление', async () => {
   await enterArea('library');
   await node('Подземное строительство').click({ button: 'right' });
+  const pdf = await entityBy('Подземное строительство');
   await page.click('[data-testid=menu-delete]');
   await page.locator('.confirm').getByRole('button', { name: 'Удалить', exact: true }).click();
   await page.waitForTimeout(400);
@@ -268,10 +322,18 @@ await step('Удаление', async () => {
   await page.waitForTimeout(300);
   check('удалённый PDF больше нигде не находится', (await page.locator('[data-testid=search-results] button').count()) === 0);
   await page.keyboard.press('Escape');
+  check('в базе: у удалённого PDF не осталось ни связей, ни позиций, файл удалён',
+    !(await entityBy('Подземное строительство'))
+    && !(await real('relations')).some((r) => r.fromId === pdf.id || r.toId === pdf.id)
+    && !(await real('placements')).some((p) => p.entityId === pdf.id)
+    && !(await idb('masterskaya', 'files')).some((f) => pdf.attachments.some((a) => a.fileId === f.id)));
+  check('остальные объекты не тронуты', !!(await entityBy('Можно ли построить дом внутри горы?')) && !!(await entityBy('Механика грунтов')));
 });
 
 let archivePath;
 await step('Экспорт / импорт', async () => {
+  const snapshot = async () => Promise.all(['entities', 'relations', 'placements', 'sketches'].map((t) => idb('masterskaya', t).then((r) => r.length)));
+  const before = await snapshot();
   await page.click('[data-testid=open-settings]');
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-testid=export]')]);
   archivePath = join(mkdtempSync(join(tmpdir(), 'm-')), 'archive.json');
@@ -279,12 +341,13 @@ await step('Экспорт / импорт', async () => {
   await page.getByRole('button', { name: 'Удалить всё' }).click();
   await page.locator('.confirm').getByRole('button', { name: 'Удалить всё' }).click();
   await page.waitForTimeout(500);
-  check('после очистки мир пуст', (await page.locator('.area__stars i').count()) === 0);
+  check('после очистки мир пуст и база пуста', (await page.locator('.area__stars i').count()) === 0 && (await idb('masterskaya', 'entities')).length === 0);
   await page.click('[data-testid=open-settings]');
   await page.setInputFiles('[data-testid=import-file]', archivePath);
   await page.locator('.confirm').getByRole('button', { name: 'Заменить' }).click();
   await page.waitForTimeout(800);
-  check('импорт вернул всю Мастерскую', (await page.locator('.area__stars i').count()) > 5);
+  const after = await snapshot();
+  check('импорт вернул всю Мастерскую: объекты, связи, позиции, эскизы', before.join() === after.join() && before[0] > 0, `${before} → ${after}`);
   await enterArea('home');
   check('после импорта идея на месте', await node('Дом внутри горы').isVisible());
 });
@@ -302,12 +365,19 @@ await step('Демо-режим', async () => {
   await page.getByRole('radio', { name: 'Моя Мастерская' }).click();
   await page.waitForSelector('.world');
   await enterArea('campus');
-  check('реальная Мастерская не смешалась с демо', (await nodes().count()) === 1);
+  check('реальная Мастерская не смешалась с демо (на карте Вуза одна своя дисциплина)', (await nodes().count()) === 1);
+  const realTitles = (await real('entities')).map((e) => e.title);
+  const demoTitles = live(await idb('masterskaya-demo', 'entities')).map((e) => e.title);
+  check('в базе: демо-объекты лежат только в masterskaya-demo', demoTitles.includes('Темппелиаукио') && !realTitles.includes('Темппелиаукио'));
+  check('в базе: реальные объекты не попали в демо', !demoTitles.includes('Статья про фундаменты в скале'));
 });
 
 await step('Офлайн', async () => {
-  const swReady = await page.evaluate(async () => { const r = await navigator.serviceWorker?.ready; return !!r?.active; });
-  if (!swReady) { check('офлайн: service worker не активен в этом режиме (dev)', true); return; }
+  const swReady = await page.evaluate(() => Promise.race([
+    navigator.serviceWorker ? navigator.serviceWorker.ready.then((r) => !!r.active) : Promise.resolve(false),
+    new Promise((res) => setTimeout(() => res(false), 5000)),
+  ]));
+  if (!swReady) { skip('работа без сети', 'service worker не активен — так бывает в режиме npm run dev'); return; }
   await page.reload();
   await page.waitForTimeout(500);
   await ctx.setOffline(true);
@@ -324,5 +394,5 @@ check('нет ошибок в консоли', errors.length === 0, errors.join(
 await browser.close();
 srv.close();
 const failed = results.filter((r) => !r.ok).length;
-console.log(`\n${results.length - failed}/${results.length} проверок интерфейса пройдено`);
+console.log(`\n${results.length - failed}/${results.length} проверок интерфейса пройдено${skipped.length ? `, пропущено: ${skipped.length} (${skipped.join('; ')})` : ''}`);
 process.exit(failed ? 1 : 0);

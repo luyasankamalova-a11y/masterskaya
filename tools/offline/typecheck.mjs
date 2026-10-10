@@ -1,19 +1,54 @@
-// Офлайн-проверка типов всего приложения. Заглушка типов React не описывает
-// обработчики событий встроенных элементов, поэтому ошибки TS7006 («параметр без типа»)
-// в JSX-обработчиках отфильтровываются; все остальные ошибки считаются настоящими.
-// В обычном проекте используйте `npm run typecheck` с настоящими @types/react.
-import { execFileSync } from 'node:child_process';
-import { resolve } from 'node:path';
+// Проверка типов.
+//  • Если установлены настоящие typescript, @types/react и vite (после npm install) —
+//    запускается `tsc --noEmit -p tsconfig.json` без каких-либо фильтров.
+//  • Если настоящих типов React нет (среда без npm), проверка идёт с заглушкой типов
+//    tools/offline/types/react.d.ts. Она не описывает обработчики встроенных JSX-элементов,
+//    поэтому пропускаются ТОЛЬКО ошибки TS7006 в строках вида onXxx={(e) => …}.
+//    Это НЕ замена настоящей проверке, и скрипт так и пишет.
+//  • Если компилятора нет или он не запустился — выход с ошибкой, а не «0 ошибок».
+import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { hasPkg, pkgFile, root } from '../../tests/modules.mjs';
 
-const root = resolve(import.meta.dirname, '../..');
-let out = '';
-try {
-  execFileSync('/opt/npm-tools/node_modules/.bin/tsc', ['-p', 'tools/offline/tsconfig.all.json'], { cwd: root, encoding: 'utf8' });
-} catch (e) {
-  out = String(e.stdout ?? '');
+const tsc = pkgFile('typescript', 'bin/tsc');
+if (!tsc) {
+  console.error('✗ Проверка типов НЕ выполнена: компилятор TypeScript не найден (npm install или MASTERSKAYA_NODE_MODULES).');
+  process.exit(2);
 }
-const errors = out.split('\n').filter((l) => /error TS\d+/.test(l) && !/error TS7006/.test(l));
-const ignored = out.split('\n').filter((l) => /error TS7006/.test(l)).length;
+const real = hasPkg('@types/react') && hasPkg('@types/react-dom') && hasPkg('vite');
+const project = real ? 'tsconfig.json' : 'tools/offline/tsconfig.all.json';
+console.log(real
+  ? 'Проверка типов: настоящий TypeScript + настоящие @types/react (tsconfig.json)'
+  : 'Проверка типов: ОФЛАЙН-РЕЖИМ — настоящих @types/react нет, используется заглушка типов React. Это не замена `npm run typecheck`.');
+
+const r = spawnSync(process.execPath, [tsc, '--noEmit', '-p', project], { cwd: root, encoding: 'utf8' });
+if (r.error) {
+  console.error(`✗ Компилятор не запустился: ${r.error.message}`);
+  process.exit(2);
+}
+const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
+const lines = out.split('\n').filter((l) => /error TS\d+/.test(l));
+
+/** TS7006 в обработчике события встроенного элемента — артефакт заглушки, а не ошибка кода. */
+function isShimArtifact(line) {
+  if (real || !/error TS7006/.test(line)) return false;
+  const m = /^(.+?)\((\d+),(\d+)\)/.exec(line);
+  if (!m) return false;
+  const src = readFileSync(join(root, m[1]), 'utf8').split('\n')[Number(m[2]) - 1] ?? '';
+  const col = Number(m[3]) - 1;
+  // параметр должен стоять прямо в списке параметров обработчика onXxx={(…) =>
+  const before = src.slice(0, col);
+  const at = before.search(/on[A-Z]\w*=\{[^{}]*$/);
+  return at >= 0 && /^on[A-Z]\w*=\{\s*(async\s*)?\(?[\w\s,]*$/.test(before.slice(at));
+}
+
+const errors = lines.filter((l) => !isShimArtifact(l));
+const skipped = lines.length - errors.length;
+if (r.status !== 0 && !lines.length) {
+  console.error('✗ Компилятор завершился с ошибкой, но без сообщений TS:\n' + out);
+  process.exit(1);
+}
 errors.forEach((l) => console.log(l));
-console.log(`Проверка типов: ${errors.length} ошибок (${ignored} предупреждений заглушки JSX пропущено)`);
+console.log(`${errors.length ? '✗' : '✓'} Ошибок типов: ${errors.length}${skipped ? ` (пропущено артефактов заглушки JSX: ${skipped})` : ''}`);
 process.exit(errors.length ? 1 : 0);

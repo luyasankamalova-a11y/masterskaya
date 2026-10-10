@@ -9,7 +9,10 @@
     "build": "vite build",
     "preview": "vite preview --port 4173",
     "typecheck": "tsc --noEmit",
-    "test": "vite build && node tests/e2e.mjs --serve dist"
+    "test": "npm run test:core && npm run test:e2e",
+    "test:core": "node tests/run-core.mjs",
+    "test:e2e": "vite build && node tests/e2e.mjs --serve dist",
+    "check:offline": "node tools/offline/check-all.mjs"
   },
   "dependencies": {
     "dexie": "^4.0.10",

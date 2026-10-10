@@ -1,9 +1,9 @@
-// Сириан в мире: сидит в углу, не мешает. По нажатию — разговор и его предложения.
+// Сириан в мире: сидит в углу, не мешает. По нажатию — его наблюдения и предложения.
+// Разговора на этапе 0 нет: AI подключается на этапе 4.
 import { useState } from 'react';
 import type { Proposal } from '../core/model/types';
 import { resolveProposal } from '../core/repo/actions';
 import { getEntity, pendingProposals } from '../core/repo/queries';
-import { aiClient, buildContext } from '../ai/AIClient';
 import { useLive } from '../store/useLive';
 import { useUI } from '../store/ui';
 import { Sheet } from '../shell/Sheet';
@@ -29,42 +29,23 @@ export function SirianDock() {
   );
 }
 
-interface Line { from: 'me' | 'sirian'; text: string }
-
 export function SirianSheet() {
   const state = useSirian();
   const proposals = useLive(pendingProposals, [], ['proposals']) ?? [];
-  const panelId = useUI((s) => s.panelId);
-  const [lines, setLines] = useState<Line[]>(() => [{ from: 'sirian', text: GREETINGS[Math.floor(Math.random() * GREETINGS.length)] }]);
-  const [q, setQ] = useState('');
+  const [greeting] = useState(() => GREETINGS[Math.floor(Math.random() * GREETINGS.length)]);
   const close = () => { sirian.rest(); useUI.getState().close(); };
-
-  async function ask() {
-    const text = q.trim();
-    if (!text) return;
-    setQ('');
-    setLines((l) => [...l, { from: 'me', text }]);
-    sirian.think();
-    // Разговор не сохраняется в Мастерскую: он живёт только в этом окне.
-    const reply = await aiClient.ask({ mode: 'chat', text }, await buildContext(panelId ?? undefined));
-    sirian.speak('playful');
-    setLines((l) => [...l, { from: 'sirian', text: reply.message }]);
-  }
 
   return (
     <Sheet title="Сириан" onClose={close} className="sirian-sheet">
       <div className={`sirian-sheet__portrait sirian-tint--${state.tint}`}>
         <Renderer state={state} variant="portrait" />
       </div>
+      <p className="chat__line chat__line--sirian">{proposals.length ? 'Я кое-что заметил.' : greeting}</p>
       {proposals.map((p) => <ProposalCard key={p.id} p={p} />)}
-      <div className="chat" aria-live="polite">
-        {lines.map((l, i) => <p key={i} className={`chat__line chat__line--${l.from}`}>{l.text}</p>)}
-      </div>
-      <form className="chat__ask" onSubmit={(e) => { e.preventDefault(); ask(); }}>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Спросить Сириана" aria-label="Вопрос Сириану" />
-        <button className="btn" type="submit">Спросить</button>
-      </form>
-      <p className="hint">Разум Сириана подключится на этапе 4. Сейчас он замечает выросшие идеи и ничего не меняет без твоего «да». Разговор не сохраняется.</p>
+      <p className="hint">
+        Разговаривать Сириан пока не умеет: разум подключится на этапе 4.
+        Сейчас он только замечает выросшие идеи и ничего не меняет без твоего «да».
+      </p>
     </Sheet>
   );
 }
